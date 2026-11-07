@@ -1,6 +1,14 @@
 # DevOps Intern Screening Task
 
-A minimal Flask API packaged with Docker, validated and published through GitHub Actions, plus a Linux system-health Bash script.
+[![CI](https://github.com/mdhabib99/git-test/actions/workflows/ci.yml/badge.svg)](https://github.com/mdhabib99/git-test/actions/workflows/ci.yml)
+
+A minimal Flask API packaged with Docker, validated by GitHub Actions, published to Docker Hub, and accompanied by a Linux system-health Bash script.
+
+## Project links
+
+- **GitHub source:** https://github.com/mdhabib99/git-test
+- **Docker Hub image:** https://hub.docker.com/r/habib990/devops-intern-task
+- **Published image:** `habib990/devops-intern-task:latest`
 
 ## Architecture
 
@@ -9,13 +17,14 @@ flowchart LR
     A[Developer pushes to main] --> B[GitHub Actions]
     B --> C[Lint and syntax checks]
     C --> D[Build Docker image]
-    D --> E[Push image to Docker Hub]
-    E --> F[Ubuntu VPS / AWS EC2]
-    F --> G[Run container with Docker Compose]
-    G --> H[HTTP API on port 8080]
+    D --> E[Container smoke test]
+    E --> F[Push image to Docker Hub]
+    F --> G[Ubuntu VPS / AWS EC2]
+    G --> H[Run container]
+    H --> I[HTTP API on port 8080]
 ```
 
-The workflow runs validation and a Docker build for pushes and pull requests targeting `main`. Publishing to Docker Hub happens only after a successful push to `main`.
+The workflow runs linting, Python syntax validation, a Docker image build, and a container smoke test for pushes and pull requests targeting `main`. On a successful push to `main`, it also publishes the image to Docker Hub using both `latest` and the Git commit SHA as tags.
 
 ## Repository structure
 
@@ -33,9 +42,13 @@ The workflow runs validation and a Docker build for pushes and pull requests tar
 └── README.md
 ```
 
-## API response
+## API
+
+### Main endpoint
 
 `GET /`
+
+Expected response:
 
 ```json
 {
@@ -44,85 +57,136 @@ The workflow runs validation and a Docker build for pushes and pull requests tar
 }
 ```
 
-Health endpoint: `GET /health`
+### Health endpoint
+
+`GET /health`
+
+Expected response:
+
+```json
+{
+  "status": "healthy"
+}
+```
 
 ## Run locally with Docker Compose
 
 Prerequisites: Docker Engine and the Docker Compose plugin.
 
+Clone this repository:
+
 ```bash
-git clone https://github.com/<your-github-username>/devops-intern-task.git
-cd devops-intern-task
+git clone https://github.com/mdhabib99/git-test.git
+cd git-test
+```
+
+Build and start the application:
+
+```bash
 docker compose up --build -d
 ```
 
-Test the application:
+Verify the endpoints:
 
 ```bash
 curl http://localhost:8080/
 curl http://localhost:8080/health
 ```
 
-View logs and stop the application:
+View status and logs, then stop the application:
 
 ```bash
+docker compose ps
 docker compose logs -f
 docker compose down
 ```
 
-## GitHub Actions and Docker Hub setup
+The application listens on container port `8080`, mapped to port `8080` on the host.
 
-1. Create a public repository on Docker Hub named `devops-intern-task`.
+## Pull and run the published Docker Hub image
+
+The image is available publicly on Docker Hub:
+
+```bash
+docker pull habib990/devops-intern-task:latest
+
+docker run --detach \
+  --name devops-intern-task \
+  --restart unless-stopped \
+  --publish 8080:8080 \
+  habib990/devops-intern-task:latest
+```
+
+Then test it with:
+
+```bash
+curl http://localhost:8080/
+```
+
+To stop and remove the container:
+
+```bash
+docker rm --force devops-intern-task
+```
+
+## GitHub Actions and Docker Hub configuration
+
+The workflow is stored at `.github/workflows/ci.yml`.
+
+1. Create a Docker Hub repository named `devops-intern-task` and make it public.
 2. In GitHub, open **Settings → Secrets and variables → Actions**.
 3. Add these repository secrets:
-   - `DOCKERHUB_USERNAME`: your Docker Hub username.
-   - `DOCKERHUB_TOKEN`: a Docker Hub access token with read/write permission.
-4. Push this project to the GitHub repository's `main` branch.
+   - `DOCKERHUB_USERNAME`: Docker Hub username.
+   - `DOCKERHUB_TOKEN`: Docker Hub access token with permission to push images.
+4. Push a commit to the `main` branch.
 
-The workflow at `.github/workflows/ci.yml` runs Ruff linting, Python syntax validation, and a Docker build. On a successful push to `main`, it logs in to Docker Hub and publishes both `latest` and the commit-SHA image tags.
+The workflow performs the following tasks:
 
-Never commit Docker Hub credentials or access tokens to the repository.
+- Installs Python dependencies and runs Ruff linting.
+- Validates Python syntax.
+- Builds the Docker image.
+- Starts the image and checks that both `/health` and `/` return successful responses.
+- On pushes to `main`, authenticates to Docker Hub and publishes `latest` and the commit-SHA image tags.
+
+Credentials are stored as GitHub Actions secrets and must never be committed to the repository.
 
 ## Linux system health script
 
-The script checks CPU utilization, memory utilization, and root filesystem disk utilization. It appends a timestamped report to `health_log.txt` and prints `[WARNING] Disk space high!` when disk usage is greater than 80%.
+The standalone script `scripts/system_health.sh` checks:
 
-Run it on a Linux host:
+- CPU utilization, sampled over a one-second interval using `/proc/stat`.
+- Memory utilization using `free`.
+- Root filesystem disk utilization using `df`.
+
+It appends a timestamped report to `health_log.txt`. If disk usage is greater than 80%, it prints:
+
+```text
+[WARNING] Disk space high!
+```
+
+Run on a Linux host:
 
 ```bash
 chmod +x scripts/system_health.sh
 ./scripts/system_health.sh
 ```
 
-Optionally choose a different log file:
+To select a different log file:
 
 ```bash
 ./scripts/system_health.sh /var/log/system_health.log
 ```
 
-The script reads CPU counters from `/proc/stat`, memory data from `free`, and disk usage from `df`. It samples CPU over a one-second interval.
-
 ## AWS EC2 / VPS deployment approach
 
-1. **Build and push:** GitHub Actions builds the Docker image and pushes it to Docker Hub when code is pushed to `main`.
-2. **Prepare the server:** Launch an Ubuntu EC2 instance, install Docker Engine and the Docker Compose plugin, and configure the security group to allow the required inbound application traffic.
-3. **Deploy and maintain:** On the EC2 instance, pull the image and run it with Docker Compose. Use container health status and `docker compose logs` to inspect the service.
+1. **Provision the server:** Launch an Ubuntu EC2 instance or VPS, apply security-group/firewall rules, and install Docker Engine and the Docker Compose plugin.
+2. **Pull the image:** Authenticate to Docker Hub if needed, then pull `habib990/devops-intern-task:latest` (or preferably a specific commit-SHA tag for a reproducible release).
+3. **Run and operate:** Start the container with Docker, configure HTTPS through a reverse proxy or load balancer, restrict inbound access, and review container health and logs.
 
-Example commands on the EC2 instance (replace the username with your Docker Hub username):
+**Deployment scope:** The application is built and verified locally with Docker. The Docker image is published to Docker Hub. A live AWS EC2/VPS deployment is not included in this task submission; the deployment approach above documents the proposed steps.
 
-```bash
-docker pull <dockerhub-username>/devops-intern-task:latest
-docker run -d \
-  --name devops-intern-task \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  <dockerhub-username>/devops-intern-task:latest
-```
+## Security and operational notes
 
-For a real production deployment, use HTTPS through a reverse proxy or load balancer, restrict inbound access, pin deployments to immutable image tags, and keep credentials in a secrets manager.
-
-## Notes
-
-- The assignment asks for a deployment approach; deploying to a live AWS account is not required for this repository deliverable.
-- The Docker Hub publishing job requires the two GitHub Actions secrets described above.
-- Do not expose port 8080 publicly without appropriate network controls and TLS termination.
+- The Dockerfile runs the application as a non-root user and includes a container health check.
+- The Compose service uses a read-only root filesystem, drops Linux capabilities, and enables `no-new-privileges`.
+- Do not expose the application directly to the public internet without appropriate network controls and HTTPS termination.
