@@ -1,4 +1,4 @@
-name: CI
+name: DevOps Intern CI
 
 on:
   push:
@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -33,6 +33,27 @@ jobs:
       - name: Build Docker image
         run: docker build --tag devops-intern-task:${{ github.sha }} .
 
+      - name: Run container smoke test
+        env:
+          IMAGE_TAG: devops-intern-task:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          container_id="$(docker run --detach --name devops-intern-task-smoke --publish 127.0.0.1:18080:8080 "$IMAGE_TAG")"
+          cleanup() {
+            docker rm --force "$container_id" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 15); do
+            if curl --fail --silent http://127.0.0.1:18080/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+          curl --fail --silent http://127.0.0.1:18080/health >/dev/null
+          curl --fail --silent http://127.0.0.1:18080/ | python -c 'import json,sys; actual=json.load(sys.stdin); expected={"message":"Hello from DevOps Intern Task!","status":"running"}; assert actual == expected, f"Unexpected API response: {actual}"'
+
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: validate-and-build
@@ -41,19 +62,19 @@ jobs:
       contents: read
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
