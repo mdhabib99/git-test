@@ -12,7 +12,8 @@ read_cpu_counters() {
     awk '/^cpu / {
         idle = $5 + $6
         total = 0
-        for (i = 2; i <= NF; i++) total += $i
+        # Count user through steal. Guest counters are already included in user/nice.
+        for (i = 2; i <= 9; i++) total += $i
         print total, idle
         exit
     }' /proc/stat
