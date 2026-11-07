@@ -6,7 +6,7 @@ LOG_FILE="health_log.txt"
 DISK_LIMIT=80
 
 # 1. CPU usage (%). Reads the idle percentage from top.
-CPU=$(top -bn1 | awk '/Cpu(s)/ {print int(100 - $8); exit}')
+CPU=$(top -bn1 | awk '/Cpu\\(s\\)/ {print int(100 - $8); exit}')
 
 # 2. RAM usage (%).
 RAM=$(free | awk '/Mem:/ {print int(($3 / $2) * 100)}')
