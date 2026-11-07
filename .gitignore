@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+health_log.txt
+.ruff_cache/
+.DS_Store
