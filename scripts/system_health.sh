@@ -1,52 +1,32 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
 
-# Usage: ./scripts/system_health.sh [log_file]
-LOG_FILE="${1:-health_log.txt}"
-DISK_WARNING_THRESHOLD=80
+# Simple server health check: CPU, RAM and Disk.
 
-timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+LOG_FILE="health_log.txt"
+DISK_LIMIT=80
 
-# Linux CPU utilization: sample /proc/stat twice and calculate busy percentage.
-read_cpu_counters() {
-    awk '/^cpu / {
-        idle = $5 + $6
-        total = 0
-        # Count user through steal. Guest counters are already included in user/nice.
-        for (i = 2; i <= 9; i++) total += $i
-        print total, idle
-        exit
-    }' /proc/stat
-}
+# 1. CPU usage (%). Reads the idle percentage from top.
+CPU=$(top -bn1 | awk '/Cpu(s)/ {print int(100 - $8); exit}')
 
-read -r total1 idle1 < <(read_cpu_counters)
-sleep 1
-read -r total2 idle2 < <(read_cpu_counters)
+# 2. RAM usage (%).
+RAM=$(free | awk '/Mem:/ {print int(($3 / $2) * 100)}')
 
-total_delta=$((total2 - total1))
-idle_delta=$((idle2 - idle1))
-if (( total_delta > 0 )); then
-    cpu_usage="$(awk -v t="$total_delta" -v i="$idle_delta" \
-        'BEGIN { printf "%.1f", (t-i)*100/t }')"
-else
-    cpu_usage="0.0"
-fi
+# 3. Disk usage (%) of the root filesystem.
+DISK=$(df -P / | awk 'NR==2 {gsub("%", "", $5); print $5}')
 
-memory_usage="$(free | awk '/^Mem:/ {
-    if ($2 > 0) printf "%.1f", (($2-$7)/$2)*100;
-    else print "0.0"
-}')"
-
-disk_usage="$(df -P / | awk 'NR==2 {gsub("%","",$5); print $5}')"
-
+# Show the report and save it to a log file.
 {
-    printf 'Timestamp: %s\n' "$timestamp"
-    printf 'CPU Usage: %s%%\n' "$cpu_usage"
-    printf 'Memory Usage: %s%%\n' "$memory_usage"
-    printf 'Disk Usage (/): %s%%\n' "$disk_usage"
+    echo "Server Health Report - $(date)"
+    echo "------------------------------"
+    echo "CPU Usage: ${CPU:-0}%"
+    echo "Memory Usage: ${RAM:-0}%"
+    echo "Disk Usage: ${DISK:-0}%"
 
-    if (( disk_usage > DISK_WARNING_THRESHOLD )); then
-        printf '[WARNING] Disk space high!\n'
+    if [ "${DISK:-0}" -gt "$DISK_LIMIT" ]; then
+        echo "WARNING: Disk usage is above 80%!"
+    else
+        echo "Status: HEALTHY"
     fi
-    printf '%s\n' '----------------------------------------'
+
+    echo " "
 } | tee -a "$LOG_FILE"
